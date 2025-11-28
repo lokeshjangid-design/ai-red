@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Vision - Live Camera</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        .camera-button {
+            width: 100%;
+            padding: 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+        
+        .camera-button.start {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+        
+        .camera-button.stop {
+            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
+            color: white;
+        }
+        
+        .camera-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        #videoElement {
+            display: none !important;
+            position: absolute;
+            left: -9999px;
+        }
+        
+        #resultCanvas {
+            width: 100%;
+            border-radius: 12px;
+            margin-top: 20px;
+            display: none;
+            background: #000;
+        }
+        
+        .stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            display: none;
+        }
+        
+        .stats h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .info {
+            text-align: center;
+            padding: 15px;
+            background: #e7f3ff;
+            border-radius: 12px;
+            margin-top: 20px;
+            color: #004085;
+        }
+        
+        .info p {
+            margin: 5px 0;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚦 Traffic Vision</h1>
+        <p>Live Camera Traffic Analysis</p>
+    </div>
+    
+    <div class="container">
+        <button id="startBtn" class="camera-button start" onclick="startCamera()">
+            📱 Start Camera
+        </button>
+        <button id="stopBtn" class="camera-button stop" onclick="stopCamera()" style="display: none;">
+            ⏹️ Stop Camera
+        </button>
+        
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="resultCanvas"></canvas>
+        
+        <div id="stats" class="stats">
+            <h3>Live Detection</h3>
+            <div class="stat-item">
+                <span>Total Vehicles:</span>
+                <span id="totalVehicles">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Status:</span>
+                <span id="status">Ready</span>
+            </div>
+        </div>
+        
+        <div class="info">
+            <p>📱 Works on iPhone & Android cameras</p>
+            <p>💻 PC Webcam & USB cameras supported</p>
+            <p>🎥 Wired CCTV cameras work too!</p>
+            <p>🚦 Point camera at traffic</p>
+            <p>⚡ Real-time AI detection</p>
+            <p><strong>PC Webcam = Faster & Better Quality!</strong></p>
+        </div>
+        
+        <div id="error" class="error"></div>
+    </div>
+    
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        let stream = null;
+        let socket = null;
+        let processing = false;
+        let intervalId = null;
+        
+        const videoElement = document.getElementById('videoElement');
+        const resultCanvas = document.getElementById('resultCanvas');
+        const ctx = resultCanvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statsDiv = document.getElementById('stats');
+        const errorDiv = document.getElementById('error');
+        
+        // Initialize Socket.IO
+        socket = io();
+        
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+        
+        socket.on('camera_frame_result', (data) => {
+            // Display processed frame
+            const img = new Image();
+            img.onload = () => {
+                resultCanvas.width = img.width;
+                resultCanvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                resultCanvas.style.display = 'block';
+            };
+            img.src = 'data:image/jpeg;base64,' + data.frame;
+            
+            // Update stats
+            document.getElementById('totalVehicles').textContent = data.total_vehicles;
+            document.getElementById('status').textContent = 'Detecting...';
+            statsDiv.style.display = 'block';
+        });
+        
+        async function startCamera() {
+            try {
+                errorDiv.style.display = 'none';
+                
+                // Check if getUserMedia is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Camera API not supported in this browser');
+                }
+                
+                // Request camera access - auto-detect mobile/PC camera
+                // For PC: Higher resolution for better quality
+                // For Mobile: Lower resolution for speed
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                
+                const constraints = {
+                    video: isMobile ? {
+                        facingMode: 'environment',
+                        width: { ideal: 320 },
+                        height: { ideal: 240 }
+                    } : {
+                        // PC webcam - higher quality, still fast
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                };
+                
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                
+                videoElement.srcObject = stream;
+                videoElement.style.display = 'block';
+                
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+                
+                // Start processing
+                processing = true;
+                socket.emit('start_camera_stream');
+                
+                // Capture and send frames - faster on PC, balanced on mobile
+                const captureInterval = isMobile ? 150 : 100; // PC: 100ms, Mobile: 150ms
+                intervalId = setInterval(captureFrame, captureInterval);
+                
+            } catch (err) {
+                console.error('Camera error:', err);
+                errorDiv.textContent = '❌ ' + err.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+        
+        function stopCamera() {
+            processing = false;
+            
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            videoElement.style.display = 'none';
+            resultCanvas.style.display = 'none';
+            statsDiv.style.display = 'none';
+            
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+            
+            document.getElementById('status').textContent = 'Stopped';
+        }
+        
+        function captureFrame() {
+            if (!processing || !videoElement.videoWidth) return;
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(videoElement, 0, 0);
+            
+            // Ultra-low quality for fastest transmission
+            const frameData = canvas.toDataURL('image/jpeg', 0.5);
+            const base64Data = frameData.split(',')[1];
+            
+            socket.emit('camera_frame', { frame: base64Data });
+        }
+    </script>
+</body>
+</html>
