@@ -749,15 +749,15 @@ if __name__ == '__main__':
     print("🚦 Traffic Vision API Server")
     print("=" * 50)
     
-    # Get port from environment variable (Railway sets this)
+    # Get port from environment variable (Railway/Render sets this)
     port = int(os.environ.get('PORT', 5000))
     
-    # Check if running on Railway or local
-    is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+    # Check if running on Railway, Render or local
+    is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('RENDER') is not None
     
     if is_production:
-        print("🚀 Running on Railway (Production)")
-        print(f"Server starting on port {port}")
+        print("🚀 Running in Production (Railway/Render)")
+        print(f"Server starting on 0.0.0.0:{port}")
         secure_mode = False
     else:
         # Local development - try HTTPS
