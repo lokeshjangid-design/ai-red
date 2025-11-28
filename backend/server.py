@@ -9,7 +9,6 @@ from flask_socketio import SocketIO, emit
 from ultralytics import YOLO
 import base64
 import threading
-import pytesseract
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
